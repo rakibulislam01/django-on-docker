@@ -1,0 +1,86 @@
+###########
+# BUILDER #
+###########
+
+# pull official base image
+FROM python:3.6 as builder
+
+# set work directory
+WORKDIR /usr/src/app
+
+# set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# install mysqlclient dependencies
+RUN apt-get update && apt-get install python3-dev libmariadb-dev-compat libmariadb-dev -y
+
+
+## lint
+#RUN pip install --upgrade pip
+#RUN python -m pip install flake8
+#COPY . .
+#RUN flake8 --ignore=E501,F401 .
+
+# install dependencies
+COPY ./requirements.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
+
+
+#########
+# FINAL #
+#########
+
+# pull official base image
+FROM python:3.6
+
+# create directory for the app user
+RUN mkdir -p /home/app
+
+# create the app user
+# RUN addgroup -S app && adduser -S app -G app
+RUN addgroup app
+
+# #
+ENV USER=app
+ENV UID=1000
+ENV GID=1000
+
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "$(pwd)" \
+    --ingroup "$USER" \
+    --no-create-home \
+    --uid "$UID" \
+    "$USER"
+# #
+
+# create the appropriate directories
+ENV HOME=/home/app
+ENV APP_HOME=/home/app/web
+RUN mkdir $APP_HOME
+RUN mkdir $APP_HOME/staticfiles
+RUN mkdir $APP_HOME/mediafiles
+WORKDIR $APP_HOME
+
+# install dependencies
+RUN apt-get update && apt-get install libpq-dev
+COPY --from=builder /usr/src/app/wheels /wheels
+COPY --from=builder /usr/src/app/requirements.txt .
+RUN pip install --no-cache /wheels/*
+
+# copy entrypoint-prod.sh
+COPY ./entrypoint.prod.sh $APP_HOME
+
+# copy project
+COPY . $APP_HOME
+
+# chown all the files to the app user
+RUN chown -R app:app $APP_HOME
+
+# change to the app user
+USER app
+
+# run entrypoint.prod.sh
+# ENTRYPOINT ["/home/app/web/entrypoint.prod.sh"]
